@@ -6,7 +6,7 @@
     <string>co.hyperday.bullscore.deliver</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/opt/homebrew/bin/python3</string>
         <string>/Users/aj/bullscore/bull_score.py</string>
         <string>--deliver</string>
         <string>--no-cache</string>
@@ -27,9 +27,11 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>TZ</key>
         <string>Europe/Vilnius</string>
+        <key>OPENCLAW_TOKEN</key>
+        <string>3fa96d1e6f721d327365522983981085b3fbf1e16d3df59b</string>
     </dict>
 </dict>
 </plist>

@@ -1059,30 +1059,58 @@ def format_telegram_message(result):
     return "\n".join(lines)
 
 
-def deliver_to_openclaw(message, webhook_url="http://127.0.0.1:18789/hooks/agent", token=None):
-    """POST formatted message to OpenClaw webhook for Telegram delivery."""
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+def deliver_to_openclaw(message, target="441105157", openclaw_bin=None):
+    """Send formatted message to Telegram via `openclaw message send` CLI.
 
-    payload = {
-        "message": message,
-        "name": "BullScore",
-        "deliver": True,
-        "channel": "telegram",
-    }
+    Falls back to HTTP webhook if CLI is not available.
+    """
+    import subprocess
 
+    # Find openclaw binary
+    if openclaw_bin is None:
+        for candidate in ["/opt/homebrew/bin/openclaw", "openclaw"]:
+            try:
+                subprocess.run([candidate, "--version"], capture_output=True, timeout=5)
+                openclaw_bin = candidate
+                break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+    if openclaw_bin:
+        try:
+            result = subprocess.run(
+                [openclaw_bin, "message", "send",
+                 "--channel", "telegram",
+                 "--target", target,
+                 "--message", message,
+                 "--json"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                _info(f"Delivered to Telegram via openclaw CLI")
+                return True
+            else:
+                _warn(f"openclaw message send failed: {result.stderr[:200]}")
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            _warn(f"openclaw CLI error: {e}")
+
+    # Fallback: HTTP webhook
+    _warn("Falling back to HTTP webhook delivery")
     try:
-        resp = requests.post(webhook_url, json=payload, headers=headers, timeout=15)
+        resp = requests.post(
+            "http://127.0.0.1:18789/hooks/agent",
+            json={"message": message, "name": "BullScore", "deliver": True, "channel": "telegram"},
+            headers={"Content-Type": "application/json"},
+            timeout=15
+        )
         if resp.status_code in (200, 202):
-            _info(f"Delivered to OpenClaw (HTTP {resp.status_code})")
+            _info(f"Delivered via webhook (HTTP {resp.status_code})")
             return True
-        else:
-            _warn(f"OpenClaw webhook returned HTTP {resp.status_code}: {resp.text[:200]}")
-            return False
+        _warn(f"Webhook returned HTTP {resp.status_code}")
     except requests.RequestException as e:
-        _warn(f"OpenClaw delivery failed: {e}")
-        return False
+        _warn(f"Webhook delivery failed: {e}")
+
+    return False
 
 
 # ─── Health Check (--health) ─────────────────────────────────────────────────
@@ -1239,14 +1267,13 @@ def main():
                         help="Bypass local file cache.")
     parser.add_argument("--db", default=None,
                         help=f"SQLite DB path (default: {DB_PATH}).")
-    parser.add_argument("--webhook-url", default="http://127.0.0.1:18789/hooks/agent",
-                        help="OpenClaw webhook URL for --deliver.")
-    parser.add_argument("--webhook-token", default=None,
-                        help="Bearer token for OpenClaw webhook.")
+    parser.add_argument("--telegram-target", default="441105157",
+                        help="Telegram chat ID for --deliver.")
+    parser.add_argument("--openclaw-bin", default=None,
+                        help="Path to openclaw binary (auto-detected if omitted).")
     args = parser.parse_args()
 
     fred_key = os.environ.get("FRED_API_KEY", "")
-    webhook_token = args.webhook_token or os.environ.get("OPENCLAW_TOKEN", "")
 
     if args.no_cache:
         global CACHE_TTL
@@ -1286,7 +1313,7 @@ def main():
         conn.close()
         message = format_telegram_message(result)
         print(message, file=sys.stderr)
-        delivered = deliver_to_openclaw(message, args.webhook_url, webhook_token)
+        delivered = deliver_to_openclaw(message, args.telegram_target, args.openclaw_bin)
         # Also print JSON to stdout
         print(json.dumps(result, indent=2))
         sys.exit(0 if delivered else 1)
